@@ -1,0 +1,243 @@
+name: Sync All-in-One Game & App Assets
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Unlimited Game + App Catalog, Audio FX & Visual Website
+        run: |
+          mkdir -p audio custom docs
+          python3 - << 'PY'
+          import json, math, os, struct, urllib.parse, urllib.request, wave
+
+          HEADERS = {'User-Agent': 'Sarfealam-AllInOne-AssetVault/4.0'}
+
+          def get_json(url):
+              req = urllib.request.Request(url, headers=HEADERS)
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read().decode('utf-8'))
+
+          def classify_name(path_str):
+              p = path_str.lower()
+              if any(k in p for k in ['car', 'truck', 'vehicle', 'tank', 'bike', 'ship', 'plane', 'heli', 'bus', 'jeep', 'van', 'tractor', 'boat']):
+                  return 'vehicles'
+              if any(k in p for k in ['character', 'human', 'man', 'woman', 'knight', 'soldier', 'zombie', 'monster', 'boss', 'robot', 'dino', 'animal', 'fox', 'farmer', 'hero', 'enemy', 'skeleton']):
+                  return 'characters'
+              if any(k in p for k in ['weapon', 'gun', 'rifle', 'pistol', 'blaster', 'sword', 'shield', 'ammo', 'grenade', 'bow', 'axe']):
+                  return 'weapons_gear'
+              return 'village_world'
+
+          catalog = []
+
+          # 1. Kenney / GDevelop Open-Game GLB Index
+          try:
+              tree = get_json('https://api.github.com/repos/Gdevelop-game/GDevelop-Open-Game/git/trees/master?recursive=1')
+              for item in tree.get('tree', []):
+                  p = item.get('path', '')
+                  if p.lower().endswith('.glb'):
+                      catalog.append({
+                          'id': f'kenney/{p}',
+                          'name': os.path.basename(p),
+                          'category': classify_name(p),
+                          'kind': 'glb',
+                          'source': 'Kenney-CC0',
+                          'sizeBytes': item.get('size', 0),
+                          'rawUrl': f'https://raw.githubusercontent.com/Gdevelop-game/GDevelop-Open-Game/master/{urllib.parse.quote(p)}'
+                      })
+          except Exception as e:
+              print('Kenney note:', e)
+
+          # 2. Quaternius 1,500+ GLB Index
+          try:
+              qtree = get_json('https://api.github.com/repos/trebeljahr/quaternius-showcase/git/trees/main?recursive=1')
+              for item in qtree.get('tree', []):
+                  p = item.get('path', '')
+                  if p.lower().endswith('.glb'):
+                      catalog.append({
+                          'id': f'quaternius/{p}',
+                          'name': os.path.basename(p),
+                          'category': classify_name(p),
+                          'kind': 'glb',
+                          'source': 'Quaternius-CC0',
+                          'sizeBytes': item.get('size', 0),
+                          'rawUrl': f'https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/{urllib.parse.quote(p)}'
+                      })
+          except Exception as e:
+              print('Quaternius note:', e)
+
+          # 3. Khronos Reference GLBs
+          for name, cat in [('CesiumMilkTruck', 'vehicles'), ('CesiumMan', 'characters'), ('RiggedFigure', 'characters'), ('Fox', 'characters')]:
+              catalog.append({
+                  'id': f'khronos/{name}.glb',
+                  'name': f'{name}.glb',
+                  'category': cat,
+                  'kind': 'glb',
+                  'source': 'Khronos',
+                  'sizeBytes': 0,
+                  'rawUrl': f'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/{name}/glTF-Binary/{name}.glb'
+              })
+
+          # 4. Poly Haven ALL PBR Textures
+          try:
+              tex = get_json('https://api.polyhaven.com/assets?t=textures')
+              for tid, meta in tex.items():
+                  catalog.append({
+                      'id': f'polyhaven/tex/{tid}',
+                      'name': meta.get('name', tid),
+                      'category': 'textures_pbr',
+                      'kind': 'texture_api',
+                      'tags': meta.get('categories', []) + meta.get('tags', []),
+                      'thumbUrl': f'https://cdn.polyhaven.com/asset_img/thumbs/{tid}.png?height=256',
+                      'apiFilesUrl': f'https://api.polyhaven.com/files/{tid}'
+                  })
+          except Exception as e:
+              print('Textures note:', e)
+
+          # 5. Poly Haven ALL HDRI Skies
+          try:
+              hdrs = get_json('https://api.polyhaven.com/assets?t=hdris')
+              for hid, meta in hdrs.items():
+                  catalog.append({
+                      'id': f'polyhaven/hdri/{hid}',
+                      'name': meta.get('name', hid),
+                      'category': 'hdri_sky',
+                      'kind': 'hdri_api',
+                      'tags': meta.get('categories', []) + meta.get('tags', []),
+                      'thumbUrl': f'https://cdn.polyhaven.com/asset_img/thumbs/{hid}.png?height=256',
+                      'apiFilesUrl': f'https://api.polyhaven.com/files/{hid}'
+                  })
+          except Exception as e:
+              print('HDRI note:', e)
+
+          # 6. Game + Commercial App Audio SFX Pack (.wav)
+          def write_wav(path, dur, fn):
+              sr = 22050
+              with wave.open(path, 'w') as wf:
+                  wf.setnchannels(1)
+                  wf.setsampwidth(2)
+                  wf.setframerate(sr)
+                  frames = bytearray()
+                  for i in range(int(sr * dur)):
+                      t = i / sr
+                      val = max(-1.0, min(1.0, fn(t)))
+                      frames += struct.pack('<h', int(val * 24000))
+                  wf.writeframes(frames)
+
+          sfx_specs = [
+              ('engine_idle.wav', 'audio_sfx', 1.2, lambda t: 0.35 * math.sin(2*math.pi*55*t) + 0.2 * math.sin(2*math.pi*110*t)),
+              ('engine_rev.wav', 'audio_sfx', 1.0, lambda t: 0.4 * math.sin(2*math.pi*(65 + 90*t)*t)),
+              ('gear_shift.wav', 'audio_sfx', 0.25, lambda t: (1 - t/0.25) * 0.5 * math.sin(2*math.pi*320*t)),
+              ('horn_truck_air.wav', 'audio_sfx', 0.8, lambda t: 0.45 * math.sin(2*math.pi*215*t) + 0.45 * math.sin(2*math.pi*272*t)),
+              ('horn_desi_musical.wav', 'audio_sfx', 1.0, lambda t: 0.5 * math.sin(2*math.pi*(440 if t < 0.25 else 554 if t < 0.5 else 659 if t < 0.75 else 880)*t)),
+              ('horn_car_beep.wav', 'audio_sfx', 0.45, lambda t: 0.5 * math.sin(2*math.pi*410*t) + 0.3 * math.sin(2*math.pi*515*t)),
+              ('brake_screech.wav', 'audio_sfx', 0.6, lambda t: (1 - t/0.6) * 0.4 * math.sin(2*math.pi*(1250 - 450*t)*t)),
+              ('gate_door_open.wav', 'audio_sfx', 0.7, lambda t: 0.4 * math.sin(2*math.pi*(130 + 170*t)*t)),
+              ('footstep_gravel.wav', 'audio_sfx', 0.22, lambda t: (1 - t/0.22) * 0.5 * math.sin(2*math.pi*155*t)),
+              ('action_shot_impact.wav', 'audio_sfx', 0.3, lambda t: (1 - t/0.3) * 0.6 * math.sin(2*math.pi*(900 * math.exp(-8*t))*t)),
+              ('app_payment_success.wav', 'app_audio', 0.65, lambda t: (1 - t/0.65) * 0.6 * math.sin(2*math.pi*(880 if t < 0.2 else 1318)*t)),
+              ('app_order_confirmed.wav', 'app_audio', 0.5, lambda t: (1 - t/0.5) * 0.5 * math.sin(2*math.pi*(587 if t < 0.18 else 880)*t)),
+              ('app_notify_chime.wav', 'app_audio', 0.35, lambda t: (1 - t/0.35) * 0.45 * math.sin(2*math.pi*1046*t)),
+              ('app_button_tap.wav', 'app_audio', 0.08, lambda t: (1 - t/0.08) * 0.4 * math.sin(2*math.pi*620*t)),
+          ]
+          repo = os.environ.get('GITHUB_REPOSITORY', 'sarfealam2246-coder/sarfealam-3d-assets')
+          for fn, cat, dur, fn_wave in sfx_specs:
+              p = f'audio/{fn}'
+              write_wav(p, dur, fn_wave)
+              catalog.append({
+                  'id': p,
+                  'name': fn,
+                  'category': cat,
+                  'kind': 'audio',
+                  'source': 'Studio-SFX',
+                  'sizeBytes': os.path.getsize(p),
+                  'rawUrl': f'https://raw.githubusercontent.com/{repo}/main/{p}'
+              })
+
+          # 7. Include any custom user files in custom/
+          for root, _, files in os.walk('custom'):
+              for fn in sorted(files):
+                  rel = os.path.relpath(os.path.join(root, fn), '.').replace('\\', '/')
+                  catalog.append({
+                      'id': rel,
+                      'name': fn,
+                      'category': classify_name(rel),
+                      'kind': os.path.splitext(fn)[1].lstrip('.').lower() or 'custom',
+                      'source': 'User-Custom',
+                      'sizeBytes': os.path.getsize(rel),
+                      'rawUrl': f'https://raw.githubusercontent.com/{repo}/main/{urllib.parse.quote(rel)}'
+                  })
+
+          summary = {}
+          for c in catalog:
+              summary[c['category']] = summary.get(c['category'], 0) + 1
+
+          live_app_apis = {
+              'realPhotosSearch': 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&prop=imageinfo&iiprop=url|mime&format=json&origin=*&gsrsearch=',
+              'foodProductsApi': 'https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&search_terms=',
+              'svgIconsCdn': 'https://api.iconify.design/search?query=',
+              'polyHavenApi': 'https://api.polyhaven.com/assets'
+          }
+
+          with open('catalog.json', 'w', encoding='utf-8') as f:
+              json.dump({'version': 4, 'unlimitedIndex': True, 'totalCount': len(catalog), 'byCategory': summary, 'liveAppApis': live_app_apis, 'assets': catalog}, f)
+
+          # 8. Build Visual Browser Website (docs/index.html)
+          html = f'''<!DOCTYPE html>
+          <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Sarfealam 3D & App Asset Vault</title>
+          <script src="https://cdn.tailwindcss.com"></script></head>
+          <body class="bg-slate-950 text-slate-100 p-4 font-sans">
+          <div class="max-w-5xl mx-auto space-y-4">
+            <div class="p-4 rounded-2xl bg-slate-900 border border-cyan-500/30 flex flex-wrap justify-between items-center gap-2">
+              <div><h1 class="text-xl font-bold text-cyan-300">Sarfealam Unlimited Asset Vault</h1>
+              <p class="text-xs text-slate-400">Total Indexed: {len(catalog)} assets (3D Models, PBR Textures, HDRI, Game & App Audio)</p></div>
+              <input id="q" placeholder="Search truck, boss, village, horn, payment..." class="px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-sm w-full sm:w-64">
+            </div>
+            <div id="cats" class="flex flex-wrap gap-2"></div>
+            <div id="grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+          </div>
+          <script>
+          let all = [], activeCat = 'all';
+          fetch('https://raw.githubusercontent.com/{repo}/main/catalog.json').then(r=>r.json()).then(d=>{{
+            all = d.assets || [];
+            const cats = ['all', ...Object.keys(d.byCategory || {{}})];
+            document.getElementById('cats').innerHTML = cats.map(c => `<button onclick="setCat('${{c}}')" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 border border-cyan-400/30 hover:bg-cyan-500 hover:text-slate-950">${{c}} (${{c==='all'?all.length:(d.byCategory[c]||0)}})</button>`).join('');
+            render();
+          }});
+          function setCat(c){{ activeCat = c; render(); }}
+          document.getElementById('q').addEventListener('input', render);
+          function render(){{
+            const q = document.getElementById('q').value.toLowerCase();
+            const items = all.filter(x => (activeCat==='all' || x.category===activeCat) && x.name.toLowerCase().includes(q)).slice(0, 60);
+            document.getElementById('grid').innerHTML = items.map(x => `
+              <div class="p-3 rounded-xl bg-slate-900 border border-white/10 flex flex-col justify-between gap-2">
+                ${{x.thumbUrl ? `<img src="${{x.thumbUrl}}" class="w-full h-24 object-cover rounded-lg">` : `<div class="w-full h-24 rounded-lg bg-slate-800 flex items-center justify-center text-xs font-bold text-cyan-300">${{x.kind.toUpperCase()}}</div>`}}
+                <div class="text-xs font-bold truncate">${{x.name}}</div>
+                <div class="text-[10px] text-slate-400">${{x.category}}</div>
+                ${{x.kind==='audio' ? `<audio controls src="${{x.rawUrl}}" class="w-full h-7"></audio>` : x.rawUrl ? `<a href="${{x.rawUrl}}" target="_blank" class="text-[11px] text-cyan-400 underline">Open File</a>` : ''}}
+              </div>`).join('');
+          }}
+          </script></body></html>'''
+          with open('docs/index.html', 'w', encoding='utf-8') as f:
+              f.write(html)
+          print('Done! Total assets:', len(catalog))
+          PY
+
+      - name: Commit Catalog, Audio & Visual Site
+        run: |
+          git config user.name "Sarfealam Asset Bot"
+          git config user.email "bot@sarfealam-studio.local"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Sync all-in-one Game & App assets + Visual Catalog site"
+            git push
+          else
+            echo "Up to date"
+          fi
+
