@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sarfealam 3D & App Asset Vault</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-950 text-slate-100 p-4 font-sans">
+<div class="max-w-5xl mx-auto space-y-4">
+  <div class="p-4 rounded-2xl bg-slate-900 border border-cyan-500/30 flex flex-wrap justify-between items-center gap-2">
+    <div><h1 class="text-xl font-bold text-cyan-300">Sarfealam Unlimited Asset Vault</h1>
+    <p class="text-xs text-slate-400">Total Indexed: 3576 assets (3D Models, PBR Textures, HDRI, Game & App Audio)</p></div>
+    <input id="q" placeholder="Search truck, boss, village, horn, payment..." class="px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-sm w-full sm:w-64">
+  </div>
+  <div id="cats" class="flex flex-wrap gap-2"></div>
+  <div id="grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+</div>
+<script>
+let all = [], activeCat = 'all';
+fetch('https://raw.githubusercontent.com/sarfealam2246-coder/sarfealam-3d-assets/main/catalog.json').then(r=>r.json()).then(d=>{
+  all = d.assets || [];
+  const cats = ['all', ...Object.keys(d.byCategory || {})];
+  document.getElementById('cats').innerHTML = cats.map(c => `<button onclick="setCat('${c}')" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 border border-cyan-400/30 hover:bg-cyan-500 hover:text-slate-950">${c} (${c==='all'?all.length:(d.byCategory[c]||0)})</button>`).join('');
+  render();
+});
+function setCat(c){ activeCat = c; render(); }
+document.getElementById('q').addEventListener('input', render);
+function render(){
+  const q = document.getElementById('q').value.toLowerCase();
+  const items = all.filter(x => (activeCat==='all' || x.category===activeCat) && x.name.toLowerCase().includes(q)).slice(0, 60);
+  document.getElementById('grid').innerHTML = items.map(x => `
+    <div class="p-3 rounded-xl bg-slate-900 border border-white/10 flex flex-col justify-between gap-2">
+      ${x.thumbUrl ? `<img src="${x.thumbUrl}" class="w-full h-24 object-cover rounded-lg">` : `<div class="w-full h-24 rounded-lg bg-slate-800 flex items-center justify-center text-xs font-bold text-cyan-300">${x.kind.toUpperCase()}</div>`}
+      <div class="text-xs font-bold truncate">${x.name}</div>
+      <div class="text-[10px] text-slate-400">${x.category}</div>
+      ${x.kind==='audio' ? `<audio controls src="${x.rawUrl}" class="w-full h-7"></audio>` : x.rawUrl ? `<a href="${x.rawUrl}" target="_blank" class="text-[11px] text-cyan-400 underline">Open File</a>` : ''}
+    </div>`).join('');
+}
+</script></body></html>
